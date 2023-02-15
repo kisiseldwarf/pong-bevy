@@ -66,22 +66,22 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         DirectionUpAndDown::Up,
         PlayerOne,
     ))
-    .insert(RigidBody::KinematicPositionBased)
-    .insert(Collider::cuboid(50.,50.))
-    .insert(Restitution {
-        coefficient: 1.,
-        combine_rule: CoefficientCombineRule::Max,
-    })
-    .with_children(|parent| {
-        parent.spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgba(255., 255., 255., 0.),
-                custom_size: Some(Vec2::new(50.0, 50.0)),
+        .insert(RigidBody::KinematicPositionBased)
+        .insert(Collider::cuboid(50.,50.))
+        .insert(Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Max,
+        })
+        .with_children(|parent| {
+            parent.spawn(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::rgba(255., 255., 255., 0.),
+                    custom_size: Some(Vec2::new(50.0, 50.0)),
+                    ..default()
+                },
                 ..default()
-            },
-            ..default()
-        });
-    });;
+            });
+        });;
 
     // player two
     commands.spawn((
@@ -93,22 +93,22 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         DirectionUpAndDown::Up,
         PlayerTwo,
     ))
-    .insert(RigidBody::KinematicPositionBased)
-    .insert(Collider::cuboid(50., 50.))
-    .insert(Restitution {
-        coefficient: 1.,
-        combine_rule: CoefficientCombineRule::Max,
-    })
-    .with_children(|parent| {
-        parent.spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgba(0.25, 0.25, 0.75, 0.),
-                custom_size: Some(Vec2::new(50.0, 50.0)),
+        .insert(RigidBody::KinematicPositionBased)
+        .insert(Collider::cuboid(50., 50.))
+        .insert(Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Max,
+        })
+        .with_children(|parent| {
+            parent.spawn(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::rgba(0.25, 0.25, 0.75, 0.),
+                    custom_size: Some(Vec2::new(50.0, 50.0)),
+                    ..default()
+                },
                 ..default()
-            },
-            ..default()
+            });
         });
-    });
 
     // ball
     commands.spawn((
@@ -119,27 +119,27 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
         Ball,
     ))
-    .insert(RigidBody::Dynamic)
-    .insert(Collider::ball(50.0))
-    .insert(GravityScale(0.))
-    .insert(Restitution {
-        coefficient: 1.,
-        combine_rule: CoefficientCombineRule::Max,
-    })
-    .insert(ExternalImpulse {
-        impulse: Vec2::new(150., 0.),
-        torque_impulse: 0.,
-    })
-    .with_children(|parent| {
-        parent.spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgba(0.25, 0.25, 0.75, 0.),
-                custom_size: Some(Vec2::new(50.0, 50.0)),
+        .insert(RigidBody::Dynamic)
+        .insert(Collider::ball(50.0))
+        .insert(GravityScale(0.))
+        .insert(Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Max,
+        })
+        .insert(ExternalImpulse {
+            impulse: Vec2::new(150., 0.),
+            torque_impulse: 0.,
+        })
+        .with_children(|parent| {
+            parent.spawn(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::rgba(0.25, 0.25, 0.75, 0.),
+                    custom_size: Some(Vec2::new(50.0, 50.0)),
+                    ..default()
+                },
                 ..default()
-            },
-            ..default()
+            });
         });
-    });
 
 
     // ** UI ** //
@@ -210,7 +210,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
     });
 
-    
+
+}
+
+fn setup_walls(mut commands: Commands, asset_server: Res<AssetServer>, camera: Query<&OrthographicProjection>) {
+    info!{"camera left: {} / camera right: {}", camera.single().right, camera.single().top}
+    commands.spawn(Collider::cuboid(camera.single().right - camera.single().left, 50.));
 }
 
 fn ball_move(time: Res<Time>, mut ball_position: Query<(&mut Transform, &mut BallDirection)>) {
@@ -230,41 +235,12 @@ fn update_score_text(
 fn ball_collision(
     mut score: ResMut<Score>,
     camera: Query<&OrthographicProjection>,
-    player_one: Query<(&Transform), With<PlayerOne>>, 
+    player_one: Query<(&Transform), With<PlayerOne>>,
     player_two: Query<(&Transform), With<PlayerTwo>>,
-    mut ball_position: Query<(&mut BallDirection, &mut Transform), (Without<PlayerOne>, Without<PlayerTwo>)>, 
+    mut ball_position: Query<(&mut BallDirection, &mut Transform), (Without<PlayerOne>, Without<PlayerTwo>)>,
 )
 {
-//  let mut rng = rand::thread_rng();
-//     if ball_collide_with_player(
-//         ball_position.single().2,
-//         ball_position.single().1.size,
-//         player_one.single().0,
-//         player_one.single().1.size) {
-//         ball_position.single_mut().0.direction = Vec2::new(1., rng.gen_range(-1.0..1.));
-//     } else if ball_collide_with_player(
-//         ball_position.single().2,
-//         ball_position.single().1.size,
-//         player_two.single().0,
-//         player_two.single().1.size) {
-//         ball_position.single_mut().0.direction = Vec2::new(-1., rng.gen_range(-1.0..1.));
-//     }
-    
-    // match ball_collide_with_screen(ball_position.single().2, camera.single()) {
-    //     Screen::Top => ball_position.single_mut().0.direction = Vec2::new(rng.gen_range(-1.0..1.0), -1.),
-    //     Screen::Bottom => ball_position.single_mut().0.direction = Vec2::new(rng.gen_range(-1.0..1.0), 1.),
-    //     Screen::Left => {
-    //         increase_player_two_score(&mut score);
-    //         ball_position.single_mut().2.translation = Vec3::new(0.,0.,0.);
-    //         ball_position.single_mut().0.direction = Vec2::new(1., rng.gen_range(-1.0..1.0))
-    //     },
-    //     Screen::Right => {
-    //         increase_player_one_score(&mut score);
-    //         ball_position.single_mut().2.translation = Vec3::new(0.,0.,0.);
-    //         ball_position.single_mut().0.direction = Vec2::new(-1., rng.gen_range(-1.0..1.0))
-    //     },
-    //     Screen::None => {}
-    // }
+
 }
 
 fn increase_player_one_score(score: &mut Score) {
@@ -297,7 +273,7 @@ fn playerOne_input(time: Res<Time>, mut sprite_position: Query<(&mut DirectionUp
                 }
             },
             DirectionUpAndDown::Down => {
-                if can_move_down(&transform, camera.single()) { 
+                if can_move_down(&transform, camera.single()) {
                     transform.translation.y -= 150. * time.delta_seconds();
                 }
             },
@@ -314,7 +290,7 @@ fn playerTwo_input(time: Res<Time>, mut sprite_position: Query<(&mut DirectionUp
                 }
             },
             DirectionUpAndDown::Down => {
-                if can_move_down(&transform, camera.single()) { 
+                if can_move_down(&transform, camera.single()) {
                     transform.translation.y -= 150. * time.delta_seconds();
                 }
             },
@@ -359,17 +335,19 @@ fn can_move_up(transform: &Transform, camera: &OrthographicProjection) -> bool {
 }
 
 fn main() {
+    CoreStage::Update;
     App::new()
-    .add_startup_system(setup)
-    .add_plugins(DefaultPlugins)
-    .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-    .add_plugin(RapierDebugRenderPlugin::default())
-    .add_system(ball_move)
-    .add_system(ball_collision)
-    .add_system(playerOne_input)
-    .add_system(draw_pOne)
-    .add_system(playerTwo_input)
-    .add_system(draw_pTwo)
-    .add_system(update_score_text)
-    .run();
+        .add_startup_system(setup)
+        .add_startup_system_to_stage(StartupStage::PostStartup, setup_walls)
+        .add_plugins(DefaultPlugins)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
+        .add_plugin(RapierDebugRenderPlugin::default())
+        .add_system(ball_move)
+        .add_system(ball_collision)
+        .add_system(playerOne_input)
+        .add_system(draw_pOne)
+        .add_system(playerTwo_input)
+        .add_system(draw_pTwo)
+        .add_system(update_score_text)
+        .run();
 }

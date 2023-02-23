@@ -1,4 +1,5 @@
-use bevy::{prelude::*, input::keyboard};
+use bevy::{input::keyboard, prelude::*};
+use bevy::ecs::system::EntityCommands;
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
 
@@ -12,16 +13,10 @@ struct PlayerTwo;
 #[derive(Component)]
 struct Ball;
 
-#[derive(Component)]
-enum DirectionUpAndDown {
-    Up,
-    Down,
-}
-
 #[derive(Resource)]
 struct Score {
     player1: i32,
-    player2: i32
+    player2: i32,
 }
 
 enum Screen {
@@ -35,7 +30,7 @@ enum Screen {
 #[derive(Component)]
 struct BallDirection {
     direction: Vec2,
-    velocity: f32
+    velocity: f32,
 }
 
 #[derive(Component)]
@@ -47,27 +42,44 @@ struct PlayerOneScoreComponent;
 #[derive(Component)]
 struct PlayerTwoScoreComponent;
 
+#[derive(Component)]
+struct PlayerOneWall;
+
+#[derive(Component)]
+struct PlayerTwoWall;
+
+enum BallGoalHit {
+    PlayerOneGoal,
+    PlayerTwoGoal,
+    None
+}
+
+enum PlayerEnum {
+    PlayerOne,
+    PlayerTwo
+}
+
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(Score {
         player1: 0,
-        player2: 0
+        player2: 0,
     });
 
     // camera
     commands.spawn(Camera2dBundle::default());
-    
+
     // player one
-    commands.spawn((
-        SpriteBundle {
-            texture: asset_server.load("Pong.png"),
-            transform: Transform::from_xyz(-250., 0., 0.),
-            ..default()
-        },
-        DirectionUpAndDown::Up,
-        PlayerOne,
-    ))
+    commands
+        .spawn((
+            SpriteBundle {
+                texture: asset_server.load("Pong.png"),
+                transform: Transform::from_xyz(-250., 0., 0.),
+                ..default()
+            },
+            PlayerOne,
+        ))
         .insert(RigidBody::KinematicPositionBased)
-        .insert(Collider::cuboid(50.,50.))
+        .insert(Collider::capsule_y(20., 5.0))
         .insert(Restitution {
             coefficient: 1.,
             combine_rule: CoefficientCombineRule::Max,
@@ -81,20 +93,20 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 },
                 ..default()
             });
-        });;
+        });
 
     // player two
-    commands.spawn((
-        SpriteBundle {
-            texture: asset_server.load("Pong.png"),
-            transform: Transform::from_xyz(250., 0., 0.),
-            ..default()
-        },
-        DirectionUpAndDown::Up,
-        PlayerTwo,
-    ))
+    commands
+        .spawn((
+            SpriteBundle {
+                texture: asset_server.load("Pong.png"),
+                transform: Transform::from_xyz(250., 0., 0.),
+                ..default()
+            },
+            PlayerTwo,
+        ))
         .insert(RigidBody::KinematicPositionBased)
-        .insert(Collider::cuboid(50., 50.))
+        .insert(Collider::capsule_y(20., 5.0))
         .insert(Restitution {
             coefficient: 1.,
             combine_rule: CoefficientCombineRule::Max,
@@ -111,23 +123,24 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 
     // ball
-    commands.spawn((
-        SpriteBundle {
-            texture: asset_server.load("Balle.png"),
-            transform: Transform::from_xyz(0., 0., 0.),
-            ..default()
-        },
-        Ball,
-    ))
+    commands
+        .spawn((
+            SpriteBundle {
+                texture: asset_server.load("Balle.png"),
+                transform: Transform::from_xyz(0., 0., 0.),
+                ..default()
+            },
+            Ball,
+        ))
         .insert(RigidBody::Dynamic)
-        .insert(Collider::ball(50.0))
+        .insert(Collider::ball(25.0))
         .insert(GravityScale(0.))
         .insert(Restitution {
             coefficient: 1.,
             combine_rule: CoefficientCombineRule::Max,
         })
         .insert(ExternalImpulse {
-            impulse: Vec2::new(150., 0.),
+            impulse: Vec2::new(100., 0.),
             torque_impulse: 0.,
         })
         .with_children(|parent| {
@@ -141,188 +154,271 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             });
         });
 
-
     // ** UI ** //
 
-    commands.spawn((
-        NodeBundle {
-            style: Style {
-                size: Size::new(Val::Percent(100.), Val::Percent(25.)),
-                flex_direction: FlexDirection::Row,
-                flex_wrap: FlexWrap::NoWrap,
-                justify_content: JustifyContent::SpaceBetween,
-                ..default()
-            },
-            background_color: BackgroundColor(Color::rgba(0.15, 0.15, 0.15, 0.)),
-            ..default()
-        }
-    )).with_children(|global_container| {
-
-        // player one score
-        global_container.spawn(NodeBundle {
-            .. default()
-        }).with_children(|player_one_container| {
-            player_one_container.spawn((
-                TextBundle::from_section(
-                    0.to_string(),
-                    TextStyle {
-                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
-                        font_size: 60.0,
-                        color: Color::WHITE,
-                    }
-                ),
-                PlayerOneScoreComponent
-            ));
-        });
-
-        // score title
-        global_container.spawn(NodeBundle { ..default()}).with_children(|score_title_container| {
-            score_title_container.spawn((
-                TextBundle::from_section(
-                    "Score",
-                    TextStyle {
-                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                        font_size: 60.0,
-                        color: Color::WHITE,
-                    }
-                ).with_style(Style {
+    commands
+        .spawn(
+            (NodeBundle {
+                style: Style {
+                    size: Size::new(Val::Percent(100.), Val::Percent(25.)),
                     flex_direction: FlexDirection::Row,
-                    justify_content: JustifyContent::Center,
-                    flex_grow: 2.,
+                    flex_wrap: FlexWrap::NoWrap,
+                    justify_content: JustifyContent::SpaceBetween,
                     ..default()
-                }),
-                TitleComponent
-            ));
+                },
+                background_color: BackgroundColor(Color::rgba(0.15, 0.15, 0.15, 0.)),
+                ..default()
+            }),
+        )
+        .with_children(|global_container| {
+            // player one score
+            global_container
+                .spawn(NodeBundle { ..default() })
+                .with_children(|player_one_container| {
+                    player_one_container.spawn((
+                        TextBundle::from_section(
+                            0.to_string(),
+                            TextStyle {
+                                font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                                font_size: 60.0,
+                                color: Color::WHITE,
+                            },
+                        ),
+                        PlayerOneScoreComponent,
+                    ));
+                });
+
+            // score title
+            global_container
+                .spawn(NodeBundle { ..default() })
+                .with_children(|score_title_container| {
+                    score_title_container.spawn((
+                        TextBundle::from_section(
+                            "Score",
+                            TextStyle {
+                                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                                font_size: 60.0,
+                                color: Color::WHITE,
+                            },
+                        )
+                        .with_style(Style {
+                            flex_direction: FlexDirection::Row,
+                            justify_content: JustifyContent::Center,
+                            flex_grow: 2.,
+                            ..default()
+                        }),
+                        TitleComponent,
+                    ));
+                });
+
+            // player two score
+            global_container
+                .spawn(NodeBundle { ..default() })
+                .with_children(|player_two_score_container| {
+                    player_two_score_container.spawn((
+                        TextBundle::from_section(
+                            0.to_string(),
+                            TextStyle {
+                                font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                                font_size: 60.0,
+                                color: Color::WHITE,
+                            },
+                        ),
+                        PlayerTwoScoreComponent,
+                    ));
+                });
+        });
+}
+
+fn setup_walls(
+    mut commands: Commands
+) {
+    commands
+        .spawn(Collider::cuboid(600., 50.))
+        .insert(TransformBundle::from_transform(Transform::from_xyz(
+            0.,
+            -350.,
+            0.,
+        )))
+        .insert(Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Max,
         });
 
-        // player two score
-        global_container.spawn(NodeBundle { ..default() }).with_children(|player_two_score_container| {
-            player_two_score_container.spawn((
-                TextBundle::from_section(
-                    0.to_string(),
-                    TextStyle {
-                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
-                        font_size: 60.0,
-                        color: Color::WHITE
-                    }),
-                PlayerTwoScoreComponent
-            ));
+    commands
+        .spawn(Collider::cuboid(600., 50.))
+        .insert(TransformBundle::from_transform(Transform::from_xyz(
+            0., 350., 0.,
+        )))
+        .insert(Restitution {
+            coefficient: 1.,
+            combine_rule: CoefficientCombineRule::Max,
         });
-    });
 
+    commands
+        .spawn(Collider::cuboid(50., 450.))
+        .insert(TransformBundle::from_transform(Transform::from_xyz(
+            -600.,
+            0.,
+            0.,
+        )))
+        .insert(Sensor)
+        .insert(PlayerOneWall)
+        .insert(ActiveEvents::COLLISION_EVENTS);
+
+    commands
+        .spawn(Collider::cuboid(50., 450.))
+        .insert(TransformBundle::from_transform(Transform::from_xyz(
+            600.,
+            0.,
+            0.,
+        )))
+        .insert(PlayerTwoWall)
+        .insert(Sensor)
+        .insert(ActiveEvents::COLLISION_EVENTS);
+}
+
+/* A system that displays the events. */
+fn display_events(
+    mut collision_events: EventReader<CollisionEvent>,
+    mut contact_force_events: EventReader<ContactForceEvent>,
+    player_one_wall_q: Query<Entity, With<PlayerOneWall>>,
+    player_two_wall_q: Query<Entity, With<PlayerTwoWall>>,
+    mut ball_q: Query<(&mut Transform, &mut ExternalImpulse), With<Ball>>,
+    mut score: ResMut<Score>
+) {
+    let player_one_wall = player_one_wall_q.single();
+    let player_two_wall = player_two_wall_q.single();
+
+    let (mut ball_transform, mut ball_external_impulse) = ball_q.get_single_mut().unwrap();
+
+    for collision_event in collision_events.iter() {
+        match is_player_walls_hit(collision_event, &player_one_wall, &player_two_wall) {
+            BallGoalHit::PlayerOneGoal => {
+                score_for(&mut score, PlayerEnum::PlayerOne);
+                replace_ball_for(PlayerEnum::PlayerTwo, &mut ball_transform, &mut ball_external_impulse);
+            },
+            BallGoalHit::PlayerTwoGoal => {
+                score_for(&mut score, PlayerEnum::PlayerTwo);
+                replace_ball_for(PlayerEnum::PlayerOne, &mut ball_transform, &mut ball_external_impulse);
+            }
+            BallGoalHit::None => {
+                noop()
+            }
+        }
+        println!("Received collision event: {:?}", collision_event);
+    }
+
+    for contact_force_event in contact_force_events.iter() {
+        println!("Received contact force event: {:?}", contact_force_event);
+    }
+}
+
+fn noop() {
 
 }
 
-fn setup_walls(mut commands: Commands, asset_server: Res<AssetServer>, camera: Query<&OrthographicProjection>) {
-    info!{"camera left: {} / camera right: {}", camera.single().right, camera.single().top}
-    commands.spawn(Collider::cuboid(camera.single().right - camera.single().left, 50.));
+fn replace_ball_for(player: PlayerEnum, ball_transform: &mut Mut<Transform>, ball_external_impulse: &mut Mut<ExternalImpulse>) {
+    ball_transform.translation.x = 0.;
+    ball_transform.translation.y = 0.;
+
+    match player {
+        PlayerEnum::PlayerOne => {
+            ball_external_impulse.impulse = Vec2::new(200., 0.)
+        }
+        PlayerEnum::PlayerTwo => {
+            ball_external_impulse.impulse = Vec2::new(-200., 0.)
+        }
+    }
 }
 
-fn ball_move(time: Res<Time>, mut ball_position: Query<(&mut Transform, &mut BallDirection)>) {
-    // ball_position.single_mut().0.translation.x += ball_position.single().1.direction.normalize().x * ball_position.single().1.velocity * time.delta_seconds();
-    // ball_position.single_mut().0.translation.y += ball_position.single().1.direction.normalize().y * ball_position.single().1.velocity * time.delta_seconds();
+fn score_for(score: &mut ResMut<Score>, player: PlayerEnum) {
+    match player {
+        PlayerEnum::PlayerOne => score.player1 += 1,
+        PlayerEnum::PlayerTwo => score.player2 += 1,
+    }
+}
+
+fn is_player_walls_hit(collision: &CollisionEvent, player_one_wall: &Entity, player_two_wall: &Entity) -> BallGoalHit {
+    if let CollisionEvent::Started(entity_one, entity_two, _) = collision {
+        info!{"First condition: {} / Second Condition: {}", player_one_wall.eq(entity_one) || player_one_wall.eq(entity_two), player_two_wall.eq(entity_one) || player_one_wall.eq(entity_two)};
+        info!{"Player one wall entity: {:?}", player_one_wall}
+        info!{"Player two wall entity: {:?}", player_two_wall}
+        info!{"Entity one of event: {:?}", entity_one}
+        info!{"Entity two of event: {:?}", entity_two}
+
+        if player_one_wall.eq(entity_one) || player_one_wall.eq(entity_two) {
+            return BallGoalHit::PlayerTwoGoal;
+        } else if player_two_wall.eq(entity_one) || player_two_wall.eq(entity_two) {
+            return BallGoalHit::PlayerOneGoal;
+        }
+    }
+
+    return BallGoalHit::None;
 }
 
 fn update_score_text(
     score: Res<Score>,
-    mut playerOneScoreText: Query<&mut Text, (With<PlayerOneScoreComponent>, Without<PlayerTwoScoreComponent>)>,
-    mut playerTwoScoreText: Query<&mut Text, (With<PlayerTwoScoreComponent>, Without<PlayerOneScoreComponent>)>,
+    mut playerOneScoreText: Query<
+        &mut Text,
+        (
+            With<PlayerOneScoreComponent>,
+            Without<PlayerTwoScoreComponent>,
+        ),
+    >,
+    mut playerTwoScoreText: Query<
+        &mut Text,
+        (
+            With<PlayerTwoScoreComponent>,
+            Without<PlayerOneScoreComponent>,
+        ),
+    >,
 ) {
     playerOneScoreText.single_mut().sections[0].value = score.player1.to_string();
     playerTwoScoreText.single_mut().sections[0].value = score.player2.to_string();
 }
 
-fn ball_collision(
-    mut score: ResMut<Score>,
+fn move_player_one(
+    time: Res<Time>,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut sprite_position: Query<&mut Transform, With<PlayerOne>>,
     camera: Query<&OrthographicProjection>,
-    player_one: Query<(&Transform), With<PlayerOne>>,
-    player_two: Query<(&Transform), With<PlayerTwo>>,
-    mut ball_position: Query<(&mut BallDirection, &mut Transform), (Without<PlayerOne>, Without<PlayerTwo>)>,
-)
-{
-
-}
-
-fn increase_player_one_score(score: &mut Score) {
-    score.player1 += 1;
-}
-
-fn increase_player_two_score(score: &mut Score) {
-    score.player2 += 1;
-}
-
-fn ball_collide_with_screen(ball_transform: &Transform, camera: &OrthographicProjection) -> Screen {
-    let translation = ball_transform.translation;
-    return if translation.y > camera.top { Screen::Top }
-    else if translation.y < camera.bottom { Screen::Bottom }
-    else if translation.x > camera.right { Screen::Right }
-    else if translation.x < camera.left { Screen::Left }
-    else { Screen::None };
-}
-
-/** fn ball_collide_with_player(ball_transform: &Transform, ball_colliding_size: f32, player_transform: &Transform, player_colliding_size: f32) -> bool {
-    return Collider::from(player_transform, player_colliding_size).collide(&Collider::from(ball_transform, ball_colliding_size));
-} **/
-
-fn playerOne_input(time: Res<Time>, mut sprite_position: Query<(&mut DirectionUpAndDown, &mut Transform, With<PlayerOne>)>, camera: Query<&OrthographicProjection>) {
-    for (mut logo, mut transform, _) in &mut sprite_position {
-        match *logo {
-            DirectionUpAndDown::Up => {
-                if can_move_up(&transform, camera.single()) {
-                    transform.translation.y += 150. * time.delta_seconds();
-                }
-            },
-            DirectionUpAndDown::Down => {
-                if can_move_down(&transform, camera.single()) {
-                    transform.translation.y -= 150. * time.delta_seconds();
-                }
-            },
-        }
-    }
-}
-
-fn playerTwo_input(time: Res<Time>, mut sprite_position: Query<(&mut DirectionUpAndDown, &mut Transform, With<PlayerTwo>)>, camera: Query<&OrthographicProjection>) {
-    for (mut logo, mut transform, _) in &mut sprite_position {
-        match *logo {
-            DirectionUpAndDown::Up => {
-                if can_move_up(&transform, camera.single()) {
-                    transform.translation.y += 150. * time.delta_seconds();
-                }
-            },
-            DirectionUpAndDown::Down => {
-                if can_move_down(&transform, camera.single()) {
-                    transform.translation.y -= 150. * time.delta_seconds();
-                }
-            },
-        }
-    }
-}
-
-fn draw_pOne(keyboard_input: Res<Input<KeyCode>>, mut query: Query<(&mut DirectionUpAndDown, &mut Transform, With<PlayerOne>)>) {
-    for item in keyboard_input.get_just_pressed().into_iter() {
-        info!("{:#?}", item);
-    }
+) {
+    let player_speed = 300.;
+    let mut transform = sprite_position.single_mut();
 
     if keyboard_input.pressed(KeyCode::Z) {
-        *query.single_mut().0 = DirectionUpAndDown::Up;
+        if can_move_up(&transform, camera.single()) {
+            transform.translation.y += player_speed * time.delta_seconds();
+        }
     }
 
     if keyboard_input.pressed(KeyCode::S) {
-        *query.single_mut().0 = DirectionUpAndDown::Down;
+        if can_move_down(&transform, camera.single()) {
+            transform.translation.y -= player_speed * time.delta_seconds();
+        }
     }
 }
 
-fn draw_pTwo(keyboard_input: Res<Input<KeyCode>>, mut query: Query<(&mut DirectionUpAndDown, &mut Transform, With<PlayerTwo>)>) {
-    for item in keyboard_input.get_just_pressed().into_iter() {
-        info!("{:#?}", item);
-    }
+fn move_player_two(
+    time: Res<Time>,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut sprite_position: Query<&mut Transform, With<PlayerTwo>>,
+    camera: Query<&OrthographicProjection>,
+) {
+    let player_speed = 300.;
+    let mut transform = sprite_position.single_mut();
 
     if keyboard_input.pressed(KeyCode::E) {
-        *query.single_mut().0 = DirectionUpAndDown::Up;
+        if can_move_up(&transform, camera.single()) {
+            transform.translation.y += player_speed * time.delta_seconds();
+        }
     }
 
     if keyboard_input.pressed(KeyCode::D) {
-        *query.single_mut().0 = DirectionUpAndDown::Down;
+        if can_move_down(&transform, camera.single()) {
+            transform.translation.y -= player_speed * time.delta_seconds();
+        }
     }
 }
 
@@ -335,19 +431,15 @@ fn can_move_up(transform: &Transform, camera: &OrthographicProjection) -> bool {
 }
 
 fn main() {
-    CoreStage::Update;
     App::new()
         .add_startup_system(setup)
         .add_startup_system_to_stage(StartupStage::PostStartup, setup_walls)
         .add_plugins(DefaultPlugins)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugin(RapierDebugRenderPlugin::default())
-        .add_system(ball_move)
-        .add_system(ball_collision)
-        .add_system(playerOne_input)
-        .add_system(draw_pOne)
-        .add_system(playerTwo_input)
-        .add_system(draw_pTwo)
+        .add_system(move_player_one)
+        .add_system(move_player_two)
         .add_system(update_score_text)
+        .add_system(display_events)
         .run();
 }

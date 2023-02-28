@@ -80,6 +80,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         ))
         .insert(RigidBody::KinematicPositionBased)
         .insert(Collider::capsule_y(20., 5.0))
+        .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(Restitution {
             coefficient: 1.,
             combine_rule: CoefficientCombineRule::Max,
@@ -111,6 +112,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             coefficient: 1.,
             combine_rule: CoefficientCombineRule::Max,
         })
+        .insert(ActiveEvents::COLLISION_EVENTS)
         .with_children(|parent| {
             parent.spawn(SpriteBundle {
                 sprite: Sprite {
@@ -135,6 +137,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(RigidBody::Dynamic)
         .insert(Collider::ball(25.0))
         .insert(GravityScale(0.))
+        .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(Restitution {
             coefficient: 1.,
             combine_rule: CoefficientCombineRule::Max,
@@ -279,7 +282,7 @@ fn setup_walls(
 }
 
 /* A system that displays the events. */
-fn display_events(
+fn goal(
     mut collision_events: EventReader<CollisionEvent>,
     mut contact_force_events: EventReader<ContactForceEvent>,
     player_one_wall_q: Query<Entity, With<PlayerOneWall>>,
@@ -311,6 +314,18 @@ fn display_events(
 
     for contact_force_event in contact_force_events.iter() {
         println!("Received contact force event: {:?}", contact_force_event);
+    }
+}
+
+fn play_collision_sound(
+    asset_server: Res<AssetServer>,
+    audio: Res<Audio>,
+    mut collision_events: EventReader<CollisionEvent>,
+    mut contact_force_events: EventReader<ContactForceEvent>,
+) {
+    for collision in collision_events.iter() {
+        let collision_sound = asset_server.load("4359__noisecollector__pongblipf4.wav");
+        audio.play(collision_sound);
     }
 }
 
@@ -422,6 +437,11 @@ fn move_player_two(
     }
 }
 
+fn play_music(asset_server: Res<AssetServer>, audio: Res<Audio>) {
+    let music = asset_server.load("Bluemillenium_-_Rio.mp3");
+    audio.play_with_settings(music, PlaybackSettings::LOOP.with_volume(0.5));
+}
+
 fn can_move_down(transform: &Transform, camera: &OrthographicProjection) -> bool {
     return transform.translation.y > camera.bottom;
 }
@@ -433,6 +453,7 @@ fn can_move_up(transform: &Transform, camera: &OrthographicProjection) -> bool {
 fn main() {
     App::new()
         .add_startup_system(setup)
+        .add_startup_system(play_music)
         .add_startup_system_to_stage(StartupStage::PostStartup, setup_walls)
         .add_plugins(DefaultPlugins)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
@@ -440,6 +461,7 @@ fn main() {
         .add_system(move_player_one)
         .add_system(move_player_two)
         .add_system(update_score_text)
-        .add_system(display_events)
+        .add_system(goal)
+        .add_system(play_collision_sound)
         .run();
 }

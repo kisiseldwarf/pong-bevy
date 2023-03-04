@@ -1,6 +1,9 @@
 use bevy::{input::keyboard, prelude::*};
+use bevy::app::CoreStage::Update;
+use bevy::app::StartupStage::PostStartup;
 use bevy::ecs::system::EntityCommands;
-use bevy_rapier2d::prelude::*;
+use bevy::render::render_resource::Texture;
+use bevy::sprite::MaterialMesh2dBundle;
 use rand::Rng;
 
 #[derive(Component)]
@@ -19,12 +22,12 @@ struct Score {
     player2: i32,
 }
 
-enum Screen {
-    Top,
-    Bottom,
-    Left,
-    Right,
-    None,
+#[derive(Resource)]
+struct Screen {
+    top: f32,
+    bottom: f32,
+    right: f32,
+    left: f32
 }
 
 #[derive(Component)]
@@ -48,6 +51,23 @@ struct PlayerOneWall;
 #[derive(Component)]
 struct PlayerTwoWall;
 
+#[derive(Component)]
+struct BallInfos {
+    speed: f32,
+    direction: Vec3,
+    in_collision: bool
+}
+
+impl Default for BallInfos {
+    fn default() -> BallInfos {
+        BallInfos {
+            speed: 0.,
+            direction: Vec3::X,
+            in_collision: false
+        }
+    }
+}
+
 enum BallGoalHit {
     PlayerOneGoal,
     PlayerTwoGoal,
@@ -59,11 +79,23 @@ enum PlayerEnum {
     PlayerTwo
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn insert_resources(mut commands: &mut Commands) {
     commands.insert_resource(Score {
         player1: 0,
         player2: 0,
     });
+
+    commands.insert_resource( Screen {
+        top: 200.,
+        bottom: -200.,
+        left: -500.,
+        right: 500.,
+    });
+}
+
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+
+    insert_resources(&mut commands);
 
     // camera
     commands.spawn(Camera2dBundle::default());
@@ -78,13 +110,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             },
             PlayerOne,
         ))
-        .insert(RigidBody::KinematicPositionBased)
-        .insert(Collider::capsule_y(20., 5.0))
-        .insert(ActiveEvents::COLLISION_EVENTS)
-        .insert(Restitution {
-            coefficient: 1.,
-            combine_rule: CoefficientCombineRule::Max,
-        })
         .with_children(|parent| {
             parent.spawn(SpriteBundle {
                 sprite: Sprite {
@@ -106,13 +131,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             },
             PlayerTwo,
         ))
-        .insert(RigidBody::KinematicPositionBased)
-        .insert(Collider::capsule_y(20., 5.0))
-        .insert(Restitution {
-            coefficient: 1.,
-            combine_rule: CoefficientCombineRule::Max,
-        })
-        .insert(ActiveEvents::COLLISION_EVENTS)
         .with_children(|parent| {
             parent.spawn(SpriteBundle {
                 sprite: Sprite {
@@ -134,17 +152,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             },
             Ball,
         ))
-        .insert(RigidBody::Dynamic)
-        .insert(Collider::ball(25.0))
-        .insert(GravityScale(0.))
-        .insert(ActiveEvents::COLLISION_EVENTS)
-        .insert(Restitution {
-            coefficient: 1.,
-            combine_rule: CoefficientCombineRule::Max,
-        })
-        .insert(ExternalImpulse {
-            impulse: Vec2::new(100., 0.),
-            torque_impulse: 0.,
+        .insert(BallInfos {
+            speed: 150.,
+            direction: Vec3 { x: 1., y: 1., ..default() },
+            .. default()
         })
         .with_children(|parent| {
             parent.spawn(SpriteBundle {
@@ -233,116 +244,113 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 }
 
-fn setup_walls(
-    mut commands: Commands
+fn move_ball(
+    mut q: Query<(&mut Transform, &BallInfos), With<Ball>>,
+    time: Res<Time>
 ) {
-    commands
-        .spawn(Collider::cuboid(600., 50.))
-        .insert(TransformBundle::from_transform(Transform::from_xyz(
-            0.,
-            -350.,
-            0.,
-        )))
-        .insert(Restitution {
-            coefficient: 1.,
-            combine_rule: CoefficientCombineRule::Max,
-        });
-
-    commands
-        .spawn(Collider::cuboid(600., 50.))
-        .insert(TransformBundle::from_transform(Transform::from_xyz(
-            0., 350., 0.,
-        )))
-        .insert(Restitution {
-            coefficient: 1.,
-            combine_rule: CoefficientCombineRule::Max,
-        });
-
-    commands
-        .spawn(Collider::cuboid(50., 450.))
-        .insert(TransformBundle::from_transform(Transform::from_xyz(
-            -600.,
-            0.,
-            0.,
-        )))
-        .insert(Sensor)
-        .insert(PlayerOneWall)
-        .insert(ActiveEvents::COLLISION_EVENTS);
-
-    commands
-        .spawn(Collider::cuboid(50., 450.))
-        .insert(TransformBundle::from_transform(Transform::from_xyz(
-            600.,
-            0.,
-            0.,
-        )))
-        .insert(PlayerTwoWall)
-        .insert(Sensor)
-        .insert(ActiveEvents::COLLISION_EVENTS);
+    let (mut ball_transform, ball_infos) = q.single_mut();
+    ball_transform.translation += (ball_infos.direction * ball_infos.speed) * time.delta_seconds();
 }
 
-/* A system that displays the events. */
-fn goal(
-    mut collision_events: EventReader<CollisionEvent>,
-    mut contact_force_events: EventReader<ContactForceEvent>,
-    player_one_wall_q: Query<Entity, With<PlayerOneWall>>,
-    player_two_wall_q: Query<Entity, With<PlayerTwoWall>>,
-    mut ball_q: Query<(&mut Transform, &mut ExternalImpulse), With<Ball>>,
-    mut score: ResMut<Score>
+fn collision_ball_top_down(
+    mut q: Query<(&Transform, &mut BallInfos)>,
+    screenLimit: Res<Screen>
 ) {
-    let player_one_wall = player_one_wall_q.single();
-    let player_two_wall = player_two_wall_q.single();
+    let (ball_transform, mut ball_infos) = q.single_mut();
+    if ball_transform.translation.y > screenLimit.top {
+        ball_infos.direction.y = -ball_infos.direction.y;
+    }
+    if ball_transform.translation.y < screenLimit.bottom {
+        ball_infos.direction.y = -ball_infos.direction.y;
+    }
+}
 
-    let (mut ball_transform, mut ball_external_impulse) = ball_q.get_single_mut().unwrap();
+fn player_collision(
+    mut ball_q: Query<(&Transform, &mut BallInfos, &Handle<Image>)>,
+    assets: Res<Assets<Image>>,
+    player_one_q: Query<(&Transform, &Handle<Image>), With<PlayerOne>>,
+    player_two_q: Query<&Transform, With<PlayerTwo>>,
+) {
+    let (ball_transform, mut ball_info, ball_texture) = ball_q.single_mut();
+    let (playerone_transform, playerone_texture) = player_one_q.single();
+    let playertwo_transform = player_two_q.single();
 
-    for collision_event in collision_events.iter() {
-        match is_player_walls_hit(collision_event, &player_one_wall, &player_two_wall) {
-            BallGoalHit::PlayerOneGoal => {
-                score_for(&mut score, PlayerEnum::PlayerOne);
-                replace_ball_for(PlayerEnum::PlayerTwo, &mut ball_transform, &mut ball_external_impulse);
-            },
-            BallGoalHit::PlayerTwoGoal => {
-                score_for(&mut score, PlayerEnum::PlayerTwo);
-                replace_ball_for(PlayerEnum::PlayerOne, &mut ball_transform, &mut ball_external_impulse);
-            }
-            BallGoalHit::None => {
-                noop()
-            }
+    if assets.get(playerone_texture).is_none() { return; }
+    if assets.get(ball_texture).is_none() { return; }
+
+    let player_sprite_size = assets.get(playerone_texture).unwrap().texture_descriptor.size;
+    let ball_sprite_size = assets.get(ball_texture).unwrap().texture_descriptor.size;
+
+
+    let player_epsilon_x = (player_sprite_size.width / 2) as f32;
+    let player_epsilon_y = (player_sprite_size.height / 2) as f32;
+
+    let ball_epsilon_x = (ball_sprite_size.width / 2) as f32;
+    let ball_epsilon_y = (ball_sprite_size.height / 2) as f32;
+
+    let rng = rand::thread_rng();
+
+    if ball_touch_playerone_x(ball_transform, playerone_transform, player_epsilon_x, ball_epsilon_x) {
+        if same_height(ball_transform, playerone_transform, player_epsilon_y) && !ball_info.in_collision {
+            info! {"ball hit player one !"}
+            ball_info.direction.x = -ball_info.direction.x;
+            ball_info.direction.y = -ball_info.direction.y; // should be rng but with the invert sign of y
+            ball_info.in_collision = true;
         }
-        println!("Received collision event: {:?}", collision_event);
+    } else {
+        ball_info.in_collision = false;
     }
 
-    for contact_force_event in contact_force_events.iter() {
-        println!("Received contact force event: {:?}", contact_force_event);
+    if ball_touch_playertwo_x(ball_transform, playertwo_transform, player_epsilon_x, ball_epsilon_x) {
+        if same_height(ball_transform, playertwo_transform, player_epsilon_y) && !ball_info.in_collision {
+            info! {"ball hit player two !"}
+            ball_info.direction.x = -ball_info.direction.x;
+            ball_info.direction.y = -ball_info.direction.y; // should be rng but with the invert sign of y
+            ball_info.in_collision = true;
+        }
+    } else {
+        ball_info.in_collision = false;
     }
 }
 
-fn play_collision_sound(
-    asset_server: Res<AssetServer>,
-    audio: Res<Audio>,
-    mut collision_events: EventReader<CollisionEvent>,
-    mut contact_force_events: EventReader<ContactForceEvent>,
+fn same_height(ball_transform: &Transform, player_transform: &Transform, player_epsilon_y: f32) -> bool {
+    (ball_transform.translation.y < (player_transform.translation.y + player_epsilon_y)) && (ball_transform.translation.y > (player_transform.translation.y - player_epsilon_y))
+}
+
+fn ball_touch_playerone_x(ball_transform: &Transform, player_transform: &Transform, player_epsilon_x: f32, ball_epsilon_x: f32) -> bool {
+    ((ball_transform.translation.x - ball_epsilon_x) > (player_transform.translation.x - player_epsilon_x)) && ((ball_transform.translation.x - ball_epsilon_x) < (player_transform.translation.x + player_epsilon_x))
+}
+
+fn ball_touch_playertwo_x(ball_transform: &Transform, player_transform: &Transform, player_epsilon_x: f32, ball_epsilon_x: f32) -> bool {
+    ((ball_transform.translation.x + ball_epsilon_x) < (player_transform.translation.x + player_epsilon_x)) && ((ball_transform.translation.x + ball_epsilon_x) > (player_transform.translation.x - player_epsilon_x))
+}
+
+fn goal(
+    mut q: Query<(&mut Transform, &mut BallInfos), With<Ball>>,
+    mut score: ResMut<Score>,
+    screenLimit: Res<Screen>
 ) {
-    for collision in collision_events.iter() {
-        let collision_sound = asset_server.load("4359__noisecollector__pongblipf4.wav");
-        audio.play(collision_sound);
+    let (mut ball_transform, mut ball_info) = q.single_mut();
+    if ball_transform.translation.x < screenLimit.left {
+        score_for(&mut score, PlayerEnum::PlayerTwo);
+        replace_ball_for(PlayerEnum::PlayerOne, &mut ball_transform, &mut ball_info);
+    }
+    if ball_transform.translation.x>  screenLimit.right {
+        score_for(&mut score, PlayerEnum::PlayerOne);
+        replace_ball_for(PlayerEnum::PlayerTwo, &mut ball_transform, &mut ball_info);
     }
 }
 
-fn noop() {
-
-}
-
-fn replace_ball_for(player: PlayerEnum, ball_transform: &mut Mut<Transform>, ball_external_impulse: &mut Mut<ExternalImpulse>) {
+fn replace_ball_for(player: PlayerEnum, ball_transform: &mut Mut<Transform>, ball_info: &mut Mut<BallInfos>) {
     ball_transform.translation.x = 0.;
     ball_transform.translation.y = 0.;
 
     match player {
         PlayerEnum::PlayerOne => {
-            ball_external_impulse.impulse = Vec2::new(200., 0.)
+            ball_info.direction = Vec3 { x: 1., y: rand::thread_rng().gen_range(-1. .. 1.), ..default() };
         }
         PlayerEnum::PlayerTwo => {
-            ball_external_impulse.impulse = Vec2::new(-200., 0.)
+            ball_info.direction = Vec3 { x: -1., y: rand::thread_rng().gen_range(-1. .. 1.), ..default() };
         }
     }
 }
@@ -352,24 +360,6 @@ fn score_for(score: &mut ResMut<Score>, player: PlayerEnum) {
         PlayerEnum::PlayerOne => score.player1 += 1,
         PlayerEnum::PlayerTwo => score.player2 += 1,
     }
-}
-
-fn is_player_walls_hit(collision: &CollisionEvent, player_one_wall: &Entity, player_two_wall: &Entity) -> BallGoalHit {
-    if let CollisionEvent::Started(entity_one, entity_two, _) = collision {
-        info!{"First condition: {} / Second Condition: {}", player_one_wall.eq(entity_one) || player_one_wall.eq(entity_two), player_two_wall.eq(entity_one) || player_one_wall.eq(entity_two)};
-        info!{"Player one wall entity: {:?}", player_one_wall}
-        info!{"Player two wall entity: {:?}", player_two_wall}
-        info!{"Entity one of event: {:?}", entity_one}
-        info!{"Entity two of event: {:?}", entity_two}
-
-        if player_one_wall.eq(entity_one) || player_one_wall.eq(entity_two) {
-            return BallGoalHit::PlayerTwoGoal;
-        } else if player_two_wall.eq(entity_one) || player_two_wall.eq(entity_two) {
-            return BallGoalHit::PlayerOneGoal;
-        }
-    }
-
-    return BallGoalHit::None;
 }
 
 fn update_score_text(
@@ -397,19 +387,19 @@ fn move_player_one(
     time: Res<Time>,
     keyboard_input: Res<Input<KeyCode>>,
     mut sprite_position: Query<&mut Transform, With<PlayerOne>>,
-    camera: Query<&OrthographicProjection>,
+    screen_limit: Res<Screen>,
 ) {
     let player_speed = 300.;
     let mut transform = sprite_position.single_mut();
 
     if keyboard_input.pressed(KeyCode::Z) {
-        if can_move_up(&transform, camera.single()) {
+        if can_move_up(&transform, &screen_limit) {
             transform.translation.y += player_speed * time.delta_seconds();
         }
     }
 
     if keyboard_input.pressed(KeyCode::S) {
-        if can_move_down(&transform, camera.single()) {
+        if can_move_down(&transform, &screen_limit) {
             transform.translation.y -= player_speed * time.delta_seconds();
         }
     }
@@ -419,19 +409,19 @@ fn move_player_two(
     time: Res<Time>,
     keyboard_input: Res<Input<KeyCode>>,
     mut sprite_position: Query<&mut Transform, With<PlayerTwo>>,
-    camera: Query<&OrthographicProjection>,
+    screen_limit: Res<Screen>,
 ) {
     let player_speed = 300.;
     let mut transform = sprite_position.single_mut();
 
     if keyboard_input.pressed(KeyCode::E) {
-        if can_move_up(&transform, camera.single()) {
+        if can_move_up(&transform, &screen_limit) {
             transform.translation.y += player_speed * time.delta_seconds();
         }
     }
 
     if keyboard_input.pressed(KeyCode::D) {
-        if can_move_down(&transform, camera.single()) {
+        if can_move_down(&transform, &screen_limit) {
             transform.translation.y -= player_speed * time.delta_seconds();
         }
     }
@@ -442,26 +432,75 @@ fn play_music(asset_server: Res<AssetServer>, audio: Res<Audio>) {
     audio.play_with_settings(music, PlaybackSettings::LOOP.with_volume(0.5));
 }
 
-fn can_move_down(transform: &Transform, camera: &OrthographicProjection) -> bool {
-    return transform.translation.y > camera.bottom;
+fn can_move_down(transform: &Transform, screen_limit: &Screen) -> bool {
+    return transform.translation.y > screen_limit.bottom;
 }
 
-fn can_move_up(transform: &Transform, camera: &OrthographicProjection) -> bool {
-    return transform.translation.y < camera.top;
+fn can_move_up(transform: &Transform, screen_limit: &Screen) -> bool {
+    return transform.translation.y < screen_limit.top;
+}
+
+fn draw_screen(
+    mut commands: Commands,
+    screen: Res<Screen>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    // draw the screen
+    let length: f32 = 1000.;
+    // draw top
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: meshes
+            .add(shape::Quad::new(Vec2::new(length, 5.)).into())
+            .into(),
+        material: materials.add(ColorMaterial::from(Color::LIME_GREEN)),
+        transform: Transform::from_translation(Vec3::new(0., screen.top, 0.)),
+        ..default()
+    });
+
+    // draw bottom
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: meshes
+            .add(shape::Quad::new(Vec2::new(length, 5.)).into())
+            .into(),
+        material: materials.add(ColorMaterial::from(Color::LIME_GREEN)),
+        transform: Transform::from_translation(Vec3::new(0., screen.bottom, 0.)),
+        ..default()
+    });
+
+    // draw left
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: meshes
+            .add(shape::Quad::new(Vec2::new(5., length)).into())
+            .into(),
+        material: materials.add(ColorMaterial::from(Color::LIME_GREEN)),
+        transform: Transform::from_translation(Vec3::new(screen.left, 0., 0.)),
+        ..default()
+    });
+
+    // draw right
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: meshes
+            .add(shape::Quad::new(Vec2::new(5., length)).into())
+            .into(),
+        material: materials.add(ColorMaterial::from(Color::LIME_GREEN)),
+        transform: Transform::from_translation(Vec3::new(screen.right, 0., 0.)),
+        ..default()
+    });
 }
 
 fn main() {
     App::new()
         .add_startup_system(setup)
         .add_startup_system(play_music)
-        .add_startup_system_to_stage(StartupStage::PostStartup, setup_walls)
+        .add_startup_system_to_stage(StartupStage::PostStartup, draw_screen)
         .add_plugins(DefaultPlugins)
-        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-        .add_plugin(RapierDebugRenderPlugin::default())
         .add_system(move_player_one)
         .add_system(move_player_two)
         .add_system(update_score_text)
         .add_system(goal)
-        .add_system(play_collision_sound)
+        .add_system(move_ball)
+        .add_system(collision_ball_top_down)
+        .add_system_to_stage(CoreStage::Update, player_collision)
         .run();
 }

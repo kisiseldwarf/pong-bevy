@@ -501,6 +501,6 @@ fn main() {
         .add_system(goal)
         .add_system(move_ball)
         .add_system(collision_ball_top_down)
-        .add_system_to_stage(CoreStage::Update, player_collision)
+        .add_system(player_collision)
         .run();
 }
